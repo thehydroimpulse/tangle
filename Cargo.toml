@@ -1,0 +1,14 @@
+[package]
+name = "tangle"
+version = "0.2.0"
+description = "Future implementation for Rust"
+homepage = "https://github.com/thehydroimpulse/tangle"
+documentation = "https://github.com/thehydroimpulse/tangle"
+repository = "https://github.com/thehydroimpulse/tangle"
+keywords = ["future", "promise", "asynchronous"]
+license = "MIT"
+authors = ["Daniel Fagnan <dnfagnan@gmail.com>"]
+
+[dependencies]
+lazy_static = "0.1.15"
+threadpool = "1.0.0"
