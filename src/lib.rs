@@ -10,11 +10,17 @@ use std::sync::Mutex;
 use std::convert;
 use std::mem;
 use threadpool::ThreadPool;
+
 pub use Async::Continue;
 
 #[macro_use]
 extern crate lazy_static;
 extern crate threadpool;
+extern crate num_cpus;
+
+lazy_static! {
+    static ref POOL: Mutex<ThreadPool> = Mutex::new(ThreadPool::new(num_cpus::get()));
+}
 
 /// Asynchronous version of `Result<T, E>` that allows for future composition. Additional
 /// macros are provided to work with both `Async<T, E>` and `Result<T, E>`.
@@ -62,11 +68,6 @@ impl<T, E> Async<T, E> {
             _ => false
         }
     }
-}
-
-lazy_static! {
-    /// XXX: Set the threadpool to the number of CPU processors available.
-    static ref POOL: Mutex<ThreadPool> = Mutex::new(ThreadPool::new(8));
 }
 
 /// ok!(123)
@@ -131,7 +132,7 @@ impl<T, E> Promise<T, E>
           E: Send + 'static
 {
     /// ```
-    /// use tangle_future::{Promise};
+    /// use tangle::{Promise};
     /// let mut p = Promise::<u32, ()>::new();
     ///
     /// p.future();
@@ -155,8 +156,8 @@ impl<T, E> Promise<T, E>
     }
 }
 
-/// A value that will resolve itself sometime in the future, asynchronously. Futures are completely
-/// composable which allows you to chain together asynchronous computations.
+/// A value that will be resolved sometime into the future, asynchronously. `Future`s use
+/// an internal threadpool to handle asynchronous tasks.
 #[derive(Debug)]
 pub struct Future<T, E=()> {
     receiver: Receiver<Async<T, E>>,
@@ -168,7 +169,7 @@ impl<T, E=()> Future<T, E>
           E: Send + 'static
 {
     /// ```
-    /// use tangle_future::{Future, Async};
+    /// use tangle::{Future, Async};
     ///
     /// Future::new(|| if true { Async::Ok(123) } else { Async::Err("Foobar") });
     /// ```
@@ -195,12 +196,12 @@ impl<T, E=()> Future<T, E>
     /// Create a new future from the receiving end of a native channel.
     ///
     /// ```
-    /// use tangle_future::{Future, Async};
+    /// use tangle::{Future, Async};
     /// use std::thread;
     /// use std::sync::mpsc::channel;
     ///
     /// let (tx, rx) = channel();
-    /// Future::<u32>::from_channel(rx).flat_map(|v| {
+    /// Future::<u32>::from_channel(rx).and_then(|v| {
     ///     assert_eq!(v, 1235);
     ///     Async::Ok(())
     /// });
@@ -223,18 +224,18 @@ impl<T, E=()> Future<T, E>
     }
 
     /// ```
-    /// use tangle_future::{Future, Async};
+    /// use tangle::{Future, Async};
     ///
-    /// let f: Future<usize> = Future::val(1);
+    /// let f: Future<usize> = Future::unit(1);
     ///
-    /// let purchase: Future<String> = f.flat_map(|num| Async::Ok(num.to_string()));
+    /// let purchase: Future<String> = f.and_then(|num| Async::Ok(num.to_string()));
     ///
     /// match purchase.await() {
     ///     Async::Ok(val) => assert_eq!(val, "1".to_string()),
     ///     _ => {}
     /// }
     /// ```
-    pub fn flat_map<F, S>(self, f: F) -> Future<S, E>
+    pub fn and_then<F, S>(self, f: F) -> Future<S, E>
         where F: FnOnce(T) -> Async<S, E> + Send + 'static,
               S: Send + 'static
     {
@@ -260,9 +261,9 @@ impl<T, E=()> Future<T, E>
     }
 
     /// ```
-    /// use tangle_future::{Future, Async};
+    /// use tangle::{Future, Async};
     ///
-    /// let f: Future<usize> = Future::val(1);
+    /// let f: Future<usize> = Future::unit(1);
     ///
     /// let purchase: Future<String> = f.map(|num| num.to_string());
     ///
@@ -306,12 +307,16 @@ impl<T, E=()> Future<T, E>
         }
     }
 
-    /// ```
-    /// use tangle_future::Future;
+    /// Wrap a value into a `Future` that completes right away.
     ///
-    /// let _: Future<usize> = Future::val(5);
+    /// ## Usage
+    ///
     /// ```
-    pub fn val(val: T) -> Future<T, E> {
+    /// use tangle::Future;
+    ///
+    /// let _: Future<usize> = Future::unit(5);
+    /// ```
+    pub fn unit(val: T) -> Future<T, E> {
         let (tx, rx) = channel();
 
         tx.send(Async::Ok(val));
@@ -323,7 +328,7 @@ impl<T, E=()> Future<T, E>
     }
 
     /// ```
-    /// use tangle_future::Future;
+    /// use tangle::Future;
     ///
     /// let _: Future<usize, &str> = Future::err("foobar");
     /// ```
@@ -430,7 +435,7 @@ mod tests {
     fn test_async() {
         let f: Future<usize> = future! { Async::Ok(5) };
 
-        let next = f.flat_map(|n| {
+        let next = f.and_then(|n| {
             thread::sleep(Duration::from_millis(50));
 
             Continue(Future::new(move || {
@@ -447,7 +452,7 @@ mod tests {
 
     #[test]
     fn resolve_from_value() {
-        let val: Future<usize> = Future::val(5);
+        let val: Future<usize> = Future::unit(5);
 
         match val.await() {
             Async::Ok(n) => assert_eq!(n, 5),
@@ -457,9 +462,9 @@ mod tests {
 
     #[test]
     fn map_promise() {
-        let count: Future<usize> = Future::val(5);
+        let count: Future<usize> = Future::unit(5);
 
-        let curr: Future<usize> = count.flat_map(|n| {
+        let curr: Future<usize> = count.and_then(|n| {
             Continue(future! {
                 Async::Ok(100)
             })

@@ -12,3 +12,4 @@ authors = ["Daniel Fagnan <dnfagnan@gmail.com>"]
 [dependencies]
 lazy_static = "0.1.15"
 threadpool = "1.0.0"
+num_cpus = "0.2.11"
