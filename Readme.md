@@ -2,6 +2,8 @@
 
 [![Build Status](https://travis-ci.org/thehydroimpulse/tangle.svg?branch=master)](https://travis-ci.org/thehydroimpulse/tangle)
 
+[Documentation (Master)](http://thehydroimpulse.github.io/tangle)
+
 Futures implementation in Rust based on Scala's Futures.
 
 ## Getting Started

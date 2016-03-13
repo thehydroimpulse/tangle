@@ -90,9 +90,6 @@ macro_rules! compose {
     ($expr:expr) => (Async::Err($expr))
 }
 
-/// ```notrust
-/// async!(Ok(123)) // Async::Ok(123)
-/// ```
 #[macro_export]
 macro_rules! async {
     ($expr:expr) => (match $expr {
@@ -104,6 +101,13 @@ macro_rules! async {
     })
 }
 
+/// Create a `Future` with a slightly nicer syntax.
+///
+/// ```notrust
+/// future! {
+///     Ok(123)
+/// }
+/// ```
 #[macro_export]
 macro_rules! future {
     ($x:expr) => {{
