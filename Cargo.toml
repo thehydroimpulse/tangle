@@ -1,6 +1,6 @@
 [package]
 name = "tangle"
-version = "0.2.0"
+version = "0.3.0"
 description = "Future implementation for Rust"
 homepage = "https://github.com/thehydroimpulse/tangle"
 documentation = "https://github.com/thehydroimpulse/tangle"
