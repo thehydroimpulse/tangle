@@ -107,7 +107,7 @@ let future = Future::unit(123);
 
 future.and_then(move |n| {
   // ...
-  Ok::Continue(find_user_id("thehydroimpulse"))
+  Async::Continue(find_user_id("thehydroimpulse"))
 });
 
 fn find_user_id(name: &str) -> Future<u64> {
