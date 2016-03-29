@@ -4,7 +4,7 @@
 
 [Documentation (Master)](http://thehydroimpulse.github.io/tangle)
 
-Futures implementation in Rust based on Scala's Futures.
+Futures implementation in Rust based on Scala's Futures that runs in a thread pool. It allows composable asynchronous concurrency in a way that works nicely with existing Rust constructs.
 
 ## Getting Started
 
@@ -12,20 +12,121 @@ Install tangle with Cargo:
 
 ```toml
 [dependencies]
-tangle = "0.2.0"
+tangle = "0.4.0"
 ```
 
 Add the crate to your project:
 
 ```rust
 extern crate tangle;
+```
+
+And require the only two types you need from this crate:
+
+```rust
 use tangle::{Future, Async};
 ```
 
-## Future
+## Creating a Future
 
+**Using Values**
 
-## Async
+The first way to create a future is through a unit, or an already resolved value. This will not require any threading and allows you to lift a value into a Future, making it composable.
+
+```rust
+Future::unit(1);
+Future::unit("hello world".to_string());
+```
+
+Future values must implement the `Send` trait regardless if threading is involved.
+
+**Using Closures**
+
+You may also create a Future through the use of a closure. The closure is expected to return the `Async<T, E>` type which is an asynchronous version of `Result<T, E>`.
+
+```rust
+Future::new(move || {
+  let result = // perform some heavy work here...
+
+  Async::Ok(result);
+});
+```
+
+**Using Channels**
+
+Channels are essentially the substitute to promises. Usually, promises are used for writing and futures are used for reading; however, Tangle replaces the writing part with Rust channels.
+
+You may let Tangle create the channel or you may pass the receiver-end yourself, using `::channel` and `::from_channel`, respectively.
+
+```rust
+let (tx, future) = Future::channel();
+
+tx.send(123);
+```
+
+Using an existing channel:
+
+```rust
+use std::sync::mpsc::channel;
+
+let (tx, rx) = channel();
+let future = Future::from_channel(rx);
+
+tx.send(123);
+```
+
+## Resolving Futures
+
+The point is to eventually get some sort of value back from the futures. You may either block on the future using the `.recv()` method, or you may chain using `and_then` (flat map) and `map`. The latter methods are all asynchronous and continue running in a thread pool, they also themselves return new futures.
+
+### Blocking
+
+```rust
+let future = Future::unit(123);
+
+// recv() returns `Result<T, E>`
+assert_eq!(future.recv().unwrap(), 123);
+```
+
+### `and_then`
+
+You need to wrap the value back into an `Async` type.
+
+```rust
+let future = Future::unit(123);
+
+future.and_then(move |n| {
+  Async::Ok(n * 100)
+});
+```
+
+You may also dynamically compose futures using `Async::Continue`.
+
+```rust
+let future = Future::unit(123);
+
+future.and_then(move |n| {
+  // ...
+  Ok::Continue(find_user_id("thehydroimpulse"))
+});
+
+fn find_user_id(name: &str) -> Future<u64> {
+  // ...
+  return Async::Ok(...);
+}
+```
+
+### `map`
+
+```rust
+let future = Future::unit(123);
+
+future.map(move |n| n * 100);
+```
+
+## Error Handling
+
+TODO: Write documentation.
 
 ## License
 

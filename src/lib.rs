@@ -32,6 +32,13 @@ pub enum Async<T, E> {
 }
 
 impl<T, E> Async<T, E> {
+    pub fn unwrap(self) -> T {
+        match self {
+            Async::Ok(t) => t,
+            _ => panic!("cannot unwrap `Async` of Err or Continue.")
+        }
+    }
+
     pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Async<U, E> {
         match self {
             Async::Ok(t) => Async::Ok(f(t)),
@@ -197,6 +204,23 @@ impl<T, E=()> Future<T, E>
         }
     }
 
+    pub fn channel() -> (Sender<T>, Future<T, E>) {
+        let (ret_tx, ret_rx) = channel();
+        let (tx, rx) = channel();
+
+        POOL.lock().expect("error acquiring a lock.").execute(move || {
+            match ret_rx.recv() {
+                Ok(v) => { tx.send(Async::Ok(v)).expect("error sending on to the channel.") },
+                Err(err) => { panic!("{:?}", err) }
+            };
+        });
+
+        (ret_tx, Future::<T, E> {
+            receiver: rx,
+            read: false
+        })
+    }
+
     /// Create a new future from the receiving end of a native channel.
     ///
     /// ```
@@ -234,9 +258,9 @@ impl<T, E=()> Future<T, E>
     ///
     /// let purchase: Future<String> = f.and_then(|num| Async::Ok(num.to_string()));
     ///
-    /// match purchase.await() {
-    ///     Async::Ok(val) => assert_eq!(val, "1".to_string()),
-    ///     _ => {}
+    /// match purchase.recv() {
+    ///     Ok(val) => assert_eq!(val, "1".to_string()),
+    ///     _ => panic!("unexpected")
     /// }
     /// ```
     pub fn and_then<F, S>(self, f: F) -> Future<S, E>
@@ -246,15 +270,9 @@ impl<T, E=()> Future<T, E>
         let (tx, rx) = channel();
 
         POOL.lock().expect("error acquiring a lock.").execute(move || {
-            match self.await() {
-                Async::Ok(val) => {
-                    tx.send(f(val));
-                },
-                Async::Err(err) => {
-                    tx.send(Async::Err(err));
-                },
-                // We should never get to this point.
-                _ => {}
+            match self.recv() {
+                Ok(val) => { tx.send(f(val)); },
+                Err(err) => { tx.send(Async::Err(err)); }
             }
         });
 
@@ -271,9 +289,9 @@ impl<T, E=()> Future<T, E>
     ///
     /// let purchase: Future<String> = f.map(|num| num.to_string());
     ///
-    /// match purchase.await() {
-    ///     Async::Ok(val) => assert_eq!(val, "1".to_string()),
-    ///     _ => {}
+    /// match purchase.recv() {
+    ///     Ok(val) => assert_eq!(val, "1".to_string()),
+    ///     _ => panic!("unexpected")
     /// }
     /// ```
     pub fn map<F, S>(self, f: F) -> Future<S, E>
@@ -283,15 +301,9 @@ impl<T, E=()> Future<T, E>
         let (tx, rx) = channel();
 
         POOL.lock().expect("error acquiring a lock.").execute(move || {
-            match self.await() {
-                Async::Ok(val) => {
-                    tx.send(Async::Ok(f(val)));
-                },
-                Async::Err(err) => {
-                    tx.send(Async::Err(err));
-                },
-                // We should never get to this point.
-                _ => {}
+            match self.recv() {
+                Ok(val) => { tx.send(Async::Ok(f(val))); },
+                Err(err) => { tx.send(Async::Err(err)); }
             }
         });
 
@@ -301,13 +313,13 @@ impl<T, E=()> Future<T, E>
         }
     }
 
-    pub fn await(self) -> Async<T, E> {
+    pub fn recv(self) -> Result<T, E> {
         let val = self.receiver.recv().expect("error trying to wait for channel.");
 
         match val {
-            Async::Ok(val) => Async::Ok(val),
-            Async::Err(err) => Async::Err(err),
-            Continue(f) => f.await()
+            Async::Ok(val) => Ok(val),
+            Async::Err(err) => Err(err),
+            Continue(f) => f.recv()
         }
     }
 
@@ -407,11 +419,22 @@ mod tests {
     }
 
     #[test]
+    fn create_channel() {
+        let (tx, future) = Future::<u32>::channel();
+
+        tx.send(123);
+
+        match future.recv() {
+            Ok(v) => assert_eq!(v, 123),
+            Err(err) => panic!("Unexpected case.")
+        }
+    }
+
+    #[test]
     fn from_chan1() {
         let (tx, rx) = channel();
         let f: Future<u32> = Future::from_channel(rx);
 
-        // await
         let f = f.map(|n| {
             assert_eq!(n, 555);
             n + 5
@@ -422,6 +445,8 @@ mod tests {
 
         // Resolve the future through the sender half of the channel.
         tx.send(555);
+
+        assert_eq!(f.recv().unwrap(), 560);
     }
 
     #[test]
@@ -448,9 +473,9 @@ mod tests {
             }))
         });
 
-        match next.await() {
-            Async::Ok(n) => assert_eq!(n, 500),
-            _ => panic!("Unexpected value")
+        match next.recv() {
+            Ok(n) => assert_eq!(n, 500),
+            Err(err) => panic!("Unexpected value")
         }
     }
 
@@ -458,9 +483,9 @@ mod tests {
     fn resolve_from_value() {
         let val: Future<usize> = Future::unit(5);
 
-        match val.await() {
-            Async::Ok(n) => assert_eq!(n, 5),
-            _ => panic!("Unexpected value")
+        match val.recv() {
+            Ok(n) => assert_eq!(n, 5),
+            Err(err) => panic!("Unexpected value")
         }
     }
 
@@ -474,9 +499,9 @@ mod tests {
             })
         });
 
-        match curr.await() {
-            Async::Ok(n) => assert_eq!(n, 100),
-            _ => panic!("Unexpected value")
+        match curr.recv() {
+            Ok(n) => assert_eq!(n, 100),
+            Err(err) => panic!("Unexpected value")
         }
     }
 
@@ -487,6 +512,6 @@ mod tests {
     //     // Do some calculation...
     //     m.success(123);
 
-    //     m.future().await()
+    //     m.future().recv()
     // }
 }
