@@ -175,7 +175,7 @@ pub struct Future<T, E=()> {
     read: bool
 }
 
-impl<T, E=()> Future<T, E>
+impl<T, E> Future<T, E>
     where T: Send + 'static,
           E: Send + 'static
 {
